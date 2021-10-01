@@ -120,7 +120,6 @@ int main()
 	return 0;
 }
 
-
 // Communicate with a client.
 // The socket will be closed when this function returns.
 bool talk_to_client(SOCKET clientSocket)

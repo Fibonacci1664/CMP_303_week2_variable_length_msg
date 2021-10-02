@@ -7,15 +7,15 @@
 	one connection at a time.
 */
 
+#include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <winsock2.h>
 #include <string>
 #include <vector>
+#include <winsock2.h>
 
 #pragma comment(lib, "ws2_32.lib")
-
 
 // The IP address for the server to listen on
 #define SERVERIP "127.0.0.1"
@@ -26,11 +26,9 @@
 // The (fixed) size of message that we send between the two programs
 #define MESSAGESIZE 40
 
-
 // Prototypes
 bool talk_to_client(SOCKET clientSocket); 
 void die(const char *message);
-
 
 int main()
 {
@@ -124,37 +122,47 @@ int main()
 // The socket will be closed when this function returns.
 bool talk_to_client(SOCKET clientSocket)
 {
-	char buffer[1];
-	//std::string rcv;
-	std::string rtnMsg;
-	int count = 0;
+	bool flag = false;
 
 	while (true)
 	{
-		// Receive one byte at a time
-		count = recv(clientSocket, buffer, 1, 0);
+		int count = 0;
+		char buffer[MESSAGESIZE];
+		char tempBuffer[MESSAGESIZE];
 
-		// Check for delimiter char
-		if (buffer[0] == '#')
+		// Receive entire msg, up to max 40 bytes
+		count = recv(clientSocket, buffer, MESSAGESIZE, 0);
+
+		// Copy entire buffer into temp
+		memcpy(tempBuffer, buffer, min(count, MESSAGESIZE));
+
+		if (count == SOCKET_ERROR)
 		{
-			printf("Hit the delimiter!\n");
+			die("message recv error");
+		}
 
-			// Copy first 4 chars from rtnMsg to quit string container
-			if (rtnMsg.compare("quit") == 0)
+		// Process temp looking for delimiter char
+		for(int i = 0; i < count; ++i)
+		{
+			// Check for delimiter char AND if this was also the last char, i.e. the msg end
+			if (tempBuffer[i] == '#' && i == count - 1)
 			{
-				printf("Client asked to quit\n");
-				break;
-			}
+				printf("Hit the delimiter!\n");
 
-			// Send the same data back to the client.
-			if (send(clientSocket, rtnMsg.c_str(), rtnMsg.size(), 0) > MESSAGESIZE)
-			{
-				printf("send failed\n");
-				return false;
-			}
+				if (memcmp(tempBuffer, "quit", 4) == 0)
+				{
+					printf("Client asked to quit\n");
+					flag = true;
+					break;
+				}
 
-			//rcv.clear();
-			rtnMsg.clear();
+				// Send the same data back to the client, ONLY once we've hit the final delimiter
+				if (send(clientSocket, tempBuffer, count, 0) > MESSAGESIZE)
+				{
+					printf("send failed\n");
+					return false;
+				}
+			}
 		}
 
 		if (count <= 0)
@@ -163,24 +171,17 @@ bool talk_to_client(SOCKET clientSocket)
 			return true;
 		}
 
-		if (count != 1)
-		{
-			printf("Got strange-sized message from client\n");
-			return true;
-		}
-
-		// Don't copy the delimiter char into the return msg
-		if (buffer[0] != '#')
-		{
-			rtnMsg.push_back(buffer[0]);
-		}	
-
 		// (Note that recv will not write a \0 at the end of the message it's
 		// received -- so we can't just use it as a C-style string directly
 		// without writing the \0 ourself.)
 		printf("Received %d bytes from the client: '", count);
 		fwrite(buffer, 1, count, stdout);
 		printf("'\n");
+
+		if (flag)
+		{
+			return true;
+		}
 	}
 
 	return true;

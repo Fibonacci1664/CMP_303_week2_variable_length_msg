@@ -27,7 +27,8 @@
 #define MESSAGESIZE 40
 
 // Prototypes
-bool talk_to_client(SOCKET clientSocket); 
+bool talk_to_client_delim(SOCKET clientSocket);
+bool talk_to_client_num_prefix(SOCKET clientSocket);
 void die(const char *message);
 
 int main()
@@ -97,8 +98,9 @@ int main()
 		}
 
 		printf("Client has connected from IP address %s, port %d!\n", inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
-
-		quit = talk_to_client(clientSocket);
+		
+		//quit = talk_to_client_delim(clientSocket);
+		quit = talk_to_client_num_prefix(clientSocket);
 
 		printf("Client disconnected\n");
 
@@ -120,7 +122,108 @@ int main()
 
 // Communicate with a client.
 // The socket will be closed when this function returns.
-bool talk_to_client(SOCKET clientSocket)
+bool talk_to_client_num_prefix(SOCKET clientSocket)
+{
+	bool flag = false;
+
+	while (true)
+	{
+		int count = 0;
+		int alphaStartPos = 0;
+		char buffer[MESSAGESIZE];
+		char tempBuffer[MESSAGESIZE];
+		char rtnBuffer[MESSAGESIZE];
+		std::string rtnMsg;
+		std::string numBuffer;
+
+		// Receive entire msg, up to max 40 bytes
+		count = recv(clientSocket, buffer, MESSAGESIZE, 0);
+
+		// Copy entire buffer into temp
+		memcpy(tempBuffer, buffer, min(count, MESSAGESIZE));
+
+		if (count == SOCKET_ERROR)
+		{
+			die("message recv error");
+		}
+
+		// Process temp reading chars until we hit first alpha char
+		for (int i = 0; i < count; ++i)
+		{
+			// If the thing in the tempBuffer at the current iteration is a number, append to string numBuffer
+			if (std::isdigit(tempBuffer[i]))
+			{
+				// Disregard leading zeros, preventing any confusion with base 8, octal. Even though stoi default base = 10
+				// Check against 48 as this is the char ASCII value of zero
+				if (tempBuffer[i] > 48)
+				{
+					numBuffer.push_back(tempBuffer[i]);
+				}
+			}
+
+			// This first time we hit an alpha char, break;
+			if (std::isalpha(tempBuffer[i]))
+			{
+				alphaStartPos = i;
+				break;
+			}
+		}
+
+		// String to int the stored data
+		int dataByteCount = 0;
+		dataByteCount = std::stoi(numBuffer);
+		
+		// Loop over tempBuffer again, starting from where we broke out of the previous loop
+		// start processing the data from this point and for the amount of dataByteCount
+		// Storing this in a std::string
+		for (int i = alphaStartPos; i < (alphaStartPos + dataByteCount); ++i)
+		{
+			rtnMsg.push_back(tempBuffer[i]);
+		}
+
+		// Copy the data from std::string to new rtn buffer
+		memcpy(rtnBuffer, rtnMsg.c_str(), dataByteCount);
+
+		// test whether the msg was quit
+		if (memcmp(rtnBuffer, "quit", 4) == 0)
+		{
+			printf("Client asked to quit\n");
+			flag = true;
+			break;
+		}
+
+		// Otherwise rtn msg
+		if (send(clientSocket, rtnBuffer, dataByteCount, 0) > MESSAGESIZE)
+		{
+			printf("send failed\n");
+			return false;
+		}
+
+		if (count <= 0)
+		{
+			printf("Client closed connection\n");
+			return true;
+		}
+
+		// (Note that recv will not write a \0 at the end of the message it's
+		// received -- so we can't just use it as a C-style string directly
+		// without writing the \0 ourself.)
+		printf("Received %d bytes from the client: '", count);
+		fwrite(buffer, 1, count, stdout);
+		printf("'\n");
+
+		if (flag)
+		{
+			return true;
+		}
+	}
+
+	return true;
+}
+
+// Communicate with a client.
+// The socket will be closed when this function returns.
+bool talk_to_client_delim(SOCKET clientSocket)
 {
 	bool flag = false;
 
@@ -142,7 +245,7 @@ bool talk_to_client(SOCKET clientSocket)
 		}
 
 		// Process temp looking for delimiter char
-		for(int i = 0; i < count; ++i)
+		for (int i = 0; i < count; ++i)
 		{
 			// Check for delimiter char AND if this was also the last char, i.e. the msg end
 			if (tempBuffer[i] == '#' && i == count - 1)
